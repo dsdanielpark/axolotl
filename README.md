@@ -1,3 +1,94 @@
+# Note 
+Source: [Reddit](https://www.reddit.com/r/LocalLLaMA/comments/15nm8r4/how_to_finetune_a_70b_model_using_a100/)
+### Disclaimers
+
+- Running against a proprietary dataset of 50k prompts (~1000-1500 tokens each + 500 tokens response). With a 4k context length, 2-3 prompts per step are packed, resulting in 2400 steps over 2 epochs. The dataset is proprietary due to business consulting, so it cannot be shared.
+
+- The run was slow, estimated at 100 hours (4 days) on a 1x A100 80GB server on Runpod (2 epochs). The cost would have been USD $179 if completed. Optimization might be possible with different Accelerate setup options, but not fully explored yet.
+
+- Manually calibrated warmup, eval, and save steps based on dataset size, micro-batch-size, and gradient accumulation steps through trial and error.
+
+- Successfully ran for 1 epoch before OOM. The Runpod pod required maintenance around the same time, so the exact cause is unclear. One epoch provided 80% of the needed model performance. Continued training from the checkpoint is possible using Axolotl.
+
+- The setup maxed out GPU RAM and heavily used system RAM (68% system RAM, 99% GPU RAM).
+
+### Future Optimization Ideas
+
+- Try FlashAttention2 instead of Xformers attention (FA2 not currently supported by Axolotl for 70B models).
+
+- Experiment with different Accelerate setup options, especially compilation options.
+
+- Use 8-bit Adam instead of 32-bit Adam to fit better in GPU memory.
+
+- Smaller Lora-R numbers for faster and less RAM-intensive training, though potentially less nuanced effects on the final model.
+
+### Axolotl Config File
+
+```yaml
+base_model: meta-llama/Llama-2-70b-hf
+base_model_config: meta-llama/Llama-2-70b-hf
+model_type: LlamaForCausalLM
+tokenizer_type: LlamaTokenizer
+load_in_8bit: false
+load_in_4bit: true
+strict: false
+hf_use_auth_token: true
+datasets:
+  - path: user/datasetID
+type: sharegpt_simple.load_guanaco
+dataset_prepared_path: last_run_prepared
+val_set_size: 0.01
+output_dir: /external/finetunes/output_name
+hub_model_id: user/output_name
+adapter: qlora
+lora_model_dir:
+sequence_len: 4096
+max_packed_sequence_len: 4096
+lora_r: 64
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules:
+lora_target_linear: true
+lora_fan_in_fan_out:
+wandb_project:
+wandb_watch:
+wandb_run_id:
+wandb_log_model:
+gradient_accumulation_steps: 4
+micro_batch_size: 2
+num_epochs: 2
+optimizer: paged_adamw_32bit
+lr_scheduler: cosine
+learning_rate: 0.0002
+train_on_inputs: false
+group_by_length: true
+bf16: true
+fp16: false
+tf32: false
+gradient_checkpointing: true
+early_stopping_patience:
+resume_from_checkpoint:
+local_rank:
+logging_steps: 1
+xformers_attention: true
+flash_attention:
+warmup_steps: 20
+eval_steps: 125
+save_steps: 500
+debug:
+deepspeed:
+weight_decay: 0.0
+fsdp:
+fsdp_config:
+special_tokens:
+  bos_token: "<s>"
+  eos_token: "</s>"
+  unk_token: "<unk>"
+  pad_token: "<pad>"
+```
+
+
+
 # Axolotl
 
 Axolotl is a tool designed to streamline the fine-tuning of various AI models, offering support for multiple configurations and architectures.
